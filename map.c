@@ -10,11 +10,6 @@
 #include "bseq.h"
 #include "khash.h"
 
-struct mm_tbuf_s {
-	void *km;
-	int rep_len, frag_gap;
-};
-
 mm_tbuf_t *mm_tbuf_init(void)
 {
 	mm_tbuf_t *b;
@@ -67,7 +62,7 @@ static void collect_minimizers(void *km, const mm_mapopt_t *opt, const mm_idx_t 
 	mv->n = 0;
 	for (i = n = 0; i < n_segs; ++i) {
 		size_t j;
-		mm_sketch2(km, seqs[i], qlens[i], mi->w, mi->k, i, mi->flag&MM_I_HPC, mi->flag&MM_I_SYNCMER, mv);
+		mm_sketch(km, seqs[i], qlens[i], mi->w, mi->k, i, mi->flag&MM_I_HPC, mv);
 		for (j = n; j < mv->n; ++j)
 			mv->a[j].y += sum << 1;
 		if (opt->sdust_thres > 0) // mask low-complexity minimizers
@@ -229,7 +224,7 @@ static mm_reg1_t *align_regs(const mm_mapopt_t *opt, const mm_idx_t *mi, void *k
 	return regs;
 }
 
-void mm_map_frag(const mm_idx_t *mi, int n_segs, const int *qlens, const char **seqs, int *n_regs, mm_reg1_t **regs, mm_tbuf_t *b, const mm_mapopt_t *opt, const char *qname)
+void mm_map_frag_core(const mm_idx_t *mi, int n_segs, const int *qlens, const char **seqs, int *n_regs, mm_reg1_t **regs, mm_tbuf_t *b, const mm_mapopt_t *opt, const char *qname)
 {
 	int i, j, rep_len, qlen_sum, n_regs0, n_mini_pos;
 	int max_chain_gap_qry, max_chain_gap_ref, is_splice = !!(opt->flag & MM_F_SPLICE), is_sr = !!(opt->flag & MM_F_SR);
@@ -375,6 +370,18 @@ void mm_map_frag(const mm_idx_t *mi, int n_segs, const int *qlens, const char **
 			km_destroy(b->km);
 			b->km = km_init();
 		}
+	}
+}
+
+void mm_map_frag(const mm_idx_t *mi, int n_segs, const int *qlens, const char **seqs, int *n_regs, mm_reg1_t **regs, mm_tbuf_t *b, const mm_mapopt_t *opt, const char *qname)
+{
+	if ((opt->flag & MM_F_PE_IND) && n_segs == 2 && opt->pe_ori >= 0 && (opt->flag&MM_F_CIGAR)) {
+		int i;
+		for (i = 0; i < n_segs; ++i)
+			mm_map_frag_core(mi, 1, &qlens[i], &seqs[i], &n_regs[i], &regs[i], b, opt, qname);
+		mm_pair(b->km, opt->max_gap_ref, opt->pe_bonus, opt->a * 2 + opt->b, opt->a, qlens, n_regs, regs);
+	} else {
+		mm_map_frag_core(mi, n_segs, qlens, seqs, n_regs, regs, b, opt, qname);
 	}
 }
 
